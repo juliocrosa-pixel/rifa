@@ -1,46 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { mpPayment } from "@/lib/mercadopago";
+import { getMpOrder } from "@/lib/mercadopago";
 
-// O Mercado Pago chama essa rota quando o status de um pagamento muda.
-// Docs: https://www.mercadopago.com.br/developers/pt/docs/checkout-api/webhooks
+// O Mercado Pago chama essa rota quando o status de uma "order" muda (evento "order").
+// Docs: https://www.mercadopago.com.br/developers/en/docs/checkout-api-orders/notifications
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const url = req.nextUrl;
 
-    // O MP manda o id do pagamento tanto no body quanto na query string,
-    // dependendo do tipo de notificação (webhooks x IPN antigo).
-    const paymentId =
-      body?.data?.id ||
-      url.searchParams.get("data.id") ||
-      url.searchParams.get("id");
-
+    const orderId = body?.data?.id || url.searchParams.get("data.id");
     const type = body?.type || url.searchParams.get("type");
 
-    if (!paymentId || (type && type !== "payment")) {
+    if (!orderId || (type && type !== "order")) {
       return NextResponse.json({ received: true });
     }
 
-    const payment = await mpPayment.get({ id: String(paymentId) });
-    const status = payment.status; // approved, rejected, cancelled, pending, etc.
+    // Consulta a order direto na API do Mercado Pago em vez de confiar cegamente
+    // no corpo da notificação, como a documentação recomenda.
+    const order = await getMpOrder(String(orderId));
+    const status = order.status; // processed, canceled, expired, etc.
 
     const numbers = await prisma.raffleNumber.findMany({
-      where: { paymentId: String(paymentId) },
+      where: { paymentId: String(orderId) },
     });
 
     if (numbers.length === 0) {
       return NextResponse.json({ received: true });
     }
 
-    if (status === "approved") {
+    if (status === "processed") {
       await prisma.raffleNumber.updateMany({
-        where: { paymentId: String(paymentId) },
+        where: { paymentId: String(orderId) },
         data: { status: "sold", soldAt: new Date() },
       });
-    } else if (status === "rejected" || status === "cancelled") {
+    } else if (status === "canceled" || status === "expired") {
       await prisma.raffleNumber.updateMany({
-        where: { paymentId: String(paymentId), status: "reserved" },
+        where: { paymentId: String(orderId), status: "reserved" },
         data: {
           status: "available",
           buyerName: null,
@@ -55,13 +51,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true });
   } catch (err) {
     console.error("Erro no webhook Mercado Pago:", err);
-    // Retorna 200 mesmo em erro pra evitar reenvio infinito do MP em casos não recuperáveis;
-    // o erro fica logado pra investigação.
     return NextResponse.json({ received: true });
   }
 }
 
 export async function GET() {
-  // Alguns testes do painel do MP fazem GET pra validar a URL.
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { mpPayment, getRafflePrice } from "@/lib/mercadopago";
+import { createMpOrder, getRafflePrice } from "@/lib/mercadopago";
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,32 +32,30 @@ export async function POST(req: NextRequest) {
 
     const price = getRafflePrice();
     const total = Math.round(numbers.length * price * 100) / 100;
+    const externalReference = randomUUID();
 
-    const baseUrl = process.env.BASE_URL || req.nextUrl.origin;
-
-    const payment = await mpPayment.create({
-      body: {
-        transaction_amount: total,
-        description: `Rifa - números ${numbers.join(", ")}`,
-        payment_method_id: "pix",
-        payer: {
-          email,
-          first_name: name.split(" ")[0],
-          last_name: name.split(" ").slice(1).join(" ") || "-",
-        },
-        notification_url: `${baseUrl}/api/webhook/mercadopago`,
-      },
+    const order = await createMpOrder({
+      amount: total,
+      description: `Rifa - números ${numbers.join(", ")}`,
+      payerEmail: email,
+      externalReference,
     });
 
-    const paymentId = String(payment.id);
-    const transactionData = payment.point_of_interaction?.transaction_data;
+    const payment = order.transactions?.payments?.[0];
+    const qrCodeBase64 = payment?.payment_method?.qr_code_base64;
+    const copiaECola = payment?.payment_method?.qr_code;
 
-    if (!transactionData?.qr_code_base64 || !transactionData?.qr_code) {
+    if (!qrCodeBase64 || !copiaECola) {
+      console.error("Order sem QR code:", JSON.stringify(order));
       return NextResponse.json(
         { error: "Mercado Pago não retornou o QR code do PIX." },
         { status: 502 }
       );
     }
+
+    // Guardamos o id da ORDER (não do pagamento individual) como referência,
+    // já que é essa que o webhook usa para consultar o status.
+    const paymentId = order.id;
 
     // Reserva os números com o paymentId, em transação pra evitar corrida
     await prisma.$transaction(
@@ -77,11 +76,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       paymentId,
-      qrCodeBase64: transactionData.qr_code_base64,
-      copiaECola: transactionData.qr_code,
+      qrCodeBase64,
+      copiaECola,
     });
   } catch (err: any) {
-    console.error("Erro ao criar PIX:", err);
+    console.error("Erro ao criar PIX:", err, err?.mpResponse);
     return NextResponse.json(
       { error: "Erro ao gerar o PIX. Tente novamente em instantes." },
       { status: 500 }
