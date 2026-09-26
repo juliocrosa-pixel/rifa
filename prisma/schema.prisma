@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// status possíveis: "available" | "reserved" | "sold"
+model RaffleNumber {
+  id          Int       @id
+  status      String    @default("available")
+  buyerName   String?
+  buyerPhone  String?
+  buyerEmail  String?
+  paymentId   String?   @unique
+  reservedAt  DateTime?
+  soldAt      DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([paymentId])
+}
