@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import RaffleClient from "@/components/RaffleClient";
-import { getRafflePrice, getTotalNumbers } from "@/lib/mercadopago";
+import { getRafflePrice, getReserveMinutes, getTotalNumbers } from "@/lib/mercadopago";
+import { releaseExpiredReservations } from "@/lib/reservations";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  await releaseExpiredReservations();
+
   const numbers = await prisma.raffleNumber.findMany({
     orderBy: { id: "asc" },
     select: { id: true, status: true },
@@ -19,6 +22,7 @@ export default async function Home() {
       price={price}
       title={title}
       totalNumbers={getTotalNumbers()}
+      reserveMinutes={getReserveMinutes()}
     />
   );
 }

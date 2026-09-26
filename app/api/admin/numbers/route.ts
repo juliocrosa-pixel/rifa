@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { releaseExpiredReservations } from "@/lib/reservations";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
+  await releaseExpiredReservations();
   const numbers = await prisma.raffleNumber.findMany({
     orderBy: { id: "asc" },
   });

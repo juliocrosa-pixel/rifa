@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import BuyModal from "./BuyModal";
 
 type RaffleNumber = { id: number; status: string };
@@ -10,15 +10,57 @@ export default function RaffleClient({
   price,
   title,
   totalNumbers,
+  reserveMinutes,
 }: {
   initialNumbers: RaffleNumber[];
   price: number;
   title: string;
   totalNumbers: number;
+  reserveMinutes: number;
 }) {
   const [numbers, setNumbers] = useState<RaffleNumber[]>(initialNumbers);
   const [selected, setSelected] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const modalOpenRef = useRef(false);
+  modalOpenRef.current = modalOpen;
+
+  // Atualiza a grade sozinha a cada 15 segundos (e quando a pessoa volta pra aba),
+  // pra mostrar números que foram vendidos ou liberados por outras pessoas.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/numbers", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data.numbers)) return;
+        const fresh: RaffleNumber[] = data.numbers;
+        setNumbers(fresh);
+        // Se algum número selecionado foi pego por outra pessoa, tira da seleção
+        // (menos enquanto a pessoa está no meio da compra).
+        if (!modalOpenRef.current) {
+          const availableIds = new Set(
+            fresh.filter((n) => n.status === "available").map((n) => n.id)
+          );
+          setSelected((prev) => prev.filter((id) => availableIds.has(id)));
+        }
+      } catch {
+        // ignora falhas pontuais de rede
+      }
+    }
+
+    const interval = setInterval(refresh, 15000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   const total = useMemo(() => selected.length * price, [selected, price]);
 
@@ -116,6 +158,7 @@ export default function RaffleClient({
         <BuyModal
           selectedNumbers={selected}
           total={total}
+          reserveMinutes={reserveMinutes}
           onClose={() => setModalOpen(false)}
           onSuccess={handleSuccess}
           onExpiredOrCancelled={handleExpiredOrCancelled}

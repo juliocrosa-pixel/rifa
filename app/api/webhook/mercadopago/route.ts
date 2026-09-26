@@ -26,6 +26,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (numbers.length === 0) {
+      if (status === "processed") {
+        // Pagamento aprovado de uma reserva que já tinha sido liberada (não deveria
+        // acontecer, pois o PIX vence junto com a reserva). Fica registrado nos logs
+        // da Vercel pra você conferir e devolver/atribuir manualmente.
+        console.error("ATENÇÃO: pagamento aprovado sem números reservados. Order:", orderId);
+      }
       return NextResponse.json({ received: true });
     }
 

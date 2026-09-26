@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createMpOrder, getRafflePrice } from "@/lib/mercadopago";
+import { releaseExpiredReservations } from "@/lib/reservations";
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,6 +18,9 @@ export async function POST(req: NextRequest) {
     if (!name || !phone || !email) {
       return NextResponse.json({ error: "Preencha nome, WhatsApp e e-mail." }, { status: 400 });
     }
+
+    // Libera reservas vencidas antes de conferir a disponibilidade
+    await releaseExpiredReservations();
 
     // Confere que todos os números ainda estão disponíveis
     const existing = await prisma.raffleNumber.findMany({
@@ -57,22 +61,38 @@ export async function POST(req: NextRequest) {
     // já que é essa que o webhook usa para consultar o status.
     const paymentId = order.id;
 
-    // Reserva os números com o paymentId, em transação pra evitar corrida
-    await prisma.$transaction(
-      numbers.map((id) =>
-        prisma.raffleNumber.update({
-          where: { id },
-          data: {
-            status: "reserved",
-            buyerName: name,
-            buyerPhone: phone,
-            buyerEmail: email,
-            paymentId,
-            reservedAt: new Date(),
-          },
-        })
-      )
-    );
+    // Reserva os números com o paymentId. Só reserva se o número AINDA estiver
+    // disponível (evita dois compradores pegarem o mesmo número ao mesmo tempo).
+    const result = await prisma.raffleNumber.updateMany({
+      where: { id: { in: numbers }, status: "available" },
+      data: {
+        status: "reserved",
+        buyerName: name,
+        buyerPhone: phone,
+        buyerEmail: email,
+        paymentId,
+        reservedAt: new Date(),
+      },
+    });
+
+    if (result.count !== numbers.length) {
+      // Algum número foi pego no meio do caminho: desfaz a reserva parcial.
+      await prisma.raffleNumber.updateMany({
+        where: { paymentId, status: "reserved" },
+        data: {
+          status: "available",
+          buyerName: null,
+          buyerPhone: null,
+          buyerEmail: null,
+          paymentId: null,
+          reservedAt: null,
+        },
+      });
+      return NextResponse.json(
+        { error: "Alguém acabou de reservar um desses números. Escolha outro." },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json({
       paymentId,

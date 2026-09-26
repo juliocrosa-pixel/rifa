@@ -15,7 +15,7 @@ model RaffleNumber {
   buyerName   String?
   buyerPhone  String?
   buyerEmail  String?
-  paymentId   String?   @unique
+  paymentId   String?
   reservedAt  DateTime?
   soldAt      DateTime?
   updatedAt   DateTime  @updatedAt

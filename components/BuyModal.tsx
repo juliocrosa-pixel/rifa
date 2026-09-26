@@ -7,12 +7,14 @@ type Step = "form" | "loading" | "pix" | "success" | "error";
 export default function BuyModal({
   selectedNumbers,
   total,
+  reserveMinutes,
   onClose,
   onSuccess,
   onExpiredOrCancelled,
 }: {
   selectedNumbers: number[];
   total: number;
+  reserveMinutes: number;
   onClose: () => void;
   onSuccess: (soldIds: number[]) => void;
   onExpiredOrCancelled: (numberIds: number[]) => void;
@@ -28,12 +30,26 @@ export default function BuyModal({
     copiaECola: string;
   } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [deadline, setDeadline] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  // Relógio da contagem regressiva
+  useEffect(() => {
+    if (step !== "pix") return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [step]);
+
+  const secondsLeft = deadline ? Math.max(0, Math.floor((deadline - now) / 1000)) : 0;
+  const countdown = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(
+    secondsLeft % 60
+  ).padStart(2, "0")}`;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,6 +77,8 @@ export default function BuyModal({
         qrCodeBase64: data.qrCodeBase64,
         copiaECola: data.copiaECola,
       });
+      setDeadline(Date.now() + reserveMinutes * 60 * 1000);
+      setNow(Date.now());
       setStep("pix");
       startPolling(data.paymentId);
     } catch (err) {
@@ -163,6 +181,11 @@ export default function BuyModal({
               className="mx-auto w-48 h-48 bg-white p-2 rounded-lg"
             />
             <p className="text-sm text-neutral-400">Escaneie o QR code ou copie o código abaixo</p>
+            <p className={`text-sm font-medium ${secondsLeft <= 300 ? "text-red-400" : "text-yellow-300"}`}>
+              {secondsLeft > 0
+                ? `Pague em até ${countdown} — depois disso o número volta a ficar disponível.`
+                : "Tempo esgotado. Se ainda não pagou, não pague este código."}
+            </p>
             <textarea
               readOnly
               value={pixData.copiaECola}

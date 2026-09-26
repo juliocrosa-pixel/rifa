@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { releaseExpiredReservations } from "@/lib/reservations";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const paymentId = params.id;
+  await releaseExpiredReservations();
 
   const numbers = await prisma.raffleNumber.findMany({
     where: { paymentId },

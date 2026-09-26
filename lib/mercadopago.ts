@@ -18,8 +18,15 @@ export function getTotalNumbers(): number {
   return parseInt(process.env.RAFFLE_TOTAL_NUMBERS || "1000", 10);
 }
 
+// Tempo que o cliente tem pra pagar o PIX. O Mercado Pago exige no mínimo 30 minutos
+// de validade pro PIX, então usamos 30 como mínimo: o número fica reservado exatamente
+// enquanto o QR code ainda pode ser pago (evita alguém pagar um número já liberado).
+const MIN_RESERVE_MINUTES = 30;
+
 export function getReserveMinutes(): number {
-  return parseInt(process.env.RESERVE_MINUTES || "15", 10);
+  const value = parseInt(process.env.RESERVE_MINUTES || "30", 10);
+  if (!Number.isFinite(value)) return MIN_RESERVE_MINUTES;
+  return Math.max(value, MIN_RESERVE_MINUTES);
 }
 
 type CreateOrderParams = {
@@ -77,6 +84,8 @@ export async function createMpOrder({
           {
             amount: amount.toFixed(2),
             payment_method: { id: "pix", type: "bank_transfer" },
+            // PIX vence junto com a reserva do número (formato ISO 8601, ex: PT30M).
+            expiration_time: `PT${getReserveMinutes()}M`,
           },
         ],
       },

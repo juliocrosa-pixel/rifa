@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       "buyerName" TEXT,
       "buyerPhone" TEXT,
       "buyerEmail" TEXT,
-      "paymentId" TEXT UNIQUE,
+      "paymentId" TEXT,
       "reservedAt" TIMESTAMP,
       "soldAt" TIMESTAMP,
       "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -39,7 +39,16 @@ export async function GET(req: NextRequest) {
   await prisma.$executeRawUnsafe(
     `CREATE INDEX IF NOT EXISTS "RaffleNumber_status_idx" ON "RaffleNumber" ("status");`
   );
+  // Vários números da mesma compra compartilham o mesmo paymentId, então ele não pode ser único.
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE "RaffleNumber" DROP CONSTRAINT IF EXISTS "RaffleNumber_paymentId_key";`
+  );
+  await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "RaffleNumber_paymentId_key";`);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS "RaffleNumber_paymentId_idx" ON "RaffleNumber" ("paymentId");`
+  );
   steps.push("Tabela verificada/criada.");
+  steps.push("Compra de vários números de uma vez liberada (paymentId não é mais único).");
 
   // 2. Popula os números, só se a tabela estiver vazia.
   const existing = await prisma.raffleNumber.count();

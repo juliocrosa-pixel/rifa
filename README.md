@@ -6,7 +6,7 @@ Site de rifa com grid de números, pagamento via PIX automático (Mercado Pago) 
 
 - Página pública com grid de números (1 a `RAFFLE_TOTAL_NUMBERS`), coloridos por status: disponível, reservado, vendido.
 - Cliente seleciona números, preenche nome/WhatsApp/e-mail e gera um PIX automaticamente.
-- Enquanto o PIX não é pago, os números ficam "reservados" por `RESERVE_MINUTES` minutos (padrão 15). Se não pagar, voltam a ficar disponíveis sozinhos (via cron).
+- Enquanto o PIX não é pago, os números ficam "reservados" por `RESERVE_MINUTES` minutos (padrão e mínimo 30, que é a validade mínima do PIX no Mercado Pago). Se não pagar, voltam a ficar disponíveis sozinhos assim que o tempo acaba, e a página se atualiza a cada 15 segundos.
 - Quando o Mercado Pago confirma o pagamento (webhook), os números passam pra "vendido" automaticamente.
 - Painel `/admin` (login/senha) mostra o resumo, lista todos os números, permite marcar como vendido/disponível manualmente (ex: venda no dinheiro) e exportar CSV.
 - `/api/setup` cria a tabela do banco e popula os números direto pelo navegador — não precisa instalar nada no computador.
@@ -46,7 +46,7 @@ Vá em https://github.com e crie uma conta gratuita, se ainda não tiver.
    | `RAFFLE_TITLE` | ex: `Rifa Beneficente` |
    | `RAFFLE_PRICE` | ex: `10` |
    | `RAFFLE_TOTAL_NUMBERS` | `1000` |
-   | `RESERVE_MINUTES` | `15` |
+   | `RESERVE_MINUTES` | `30` |
    | `ADMIN_USER` | um usuário à sua escolha |
    | `ADMIN_PASSWORD` | uma senha forte à sua escolha |
    | `ADMIN_SECRET` | uma string longa e aleatória qualquer (só precisa ser difícil de adivinhar) |
