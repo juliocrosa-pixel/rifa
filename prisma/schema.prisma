@@ -8,18 +8,87 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// status possíveis: "available" | "reserved" | "sold"
-model RaffleNumber {
-  id          Int       @id
-  status      String    @default("available")
-  buyerName   String?
-  buyerPhone  String?
-  buyerEmail  String?
-  paymentId   String?
-  reservedAt  DateTime?
-  soldAt      DateTime?
-  updatedAt   DateTime  @updatedAt
+// As tabelas são criadas/atualizadas pelo endereço /api/setup (não precisa rodar nada no computador).
+// Se mudar algo aqui, atualize também o SQL em lib/setup-sql.ts.
 
-  @@index([status])
-  @@index([paymentId])
+// status: "draft" (rascunho/pausada) | "active" (à venda no site) | "finished" (sorteada)
+model Raffle {
+  id           Int           @id @default(autoincrement())
+  title        String
+  prize        String        @default("")
+  description  String        @default("")
+  rules        String        @default("")
+  priceCents   Int
+  totalNumbers Int
+  drawDate     DateTime?
+  drawMethod   String        @default("")
+  status       String        @default("draft")
+  winnerNumber Int?
+  winnerName   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  finishedAt   DateTime?
+  tickets      Ticket[]
+  purchases    Purchase[]
+  images       RaffleImage[]
+}
+
+// Um número de uma rifa. status: "available" | "reserved" | "sold"
+model Ticket {
+  id         Int       @id @default(autoincrement())
+  raffleId   Int
+  raffle     Raffle    @relation(fields: [raffleId], references: [id], onDelete: Cascade)
+  number     Int
+  status     String    @default("available")
+  buyerName  String?
+  buyerPhone String?
+  buyerEmail String?
+  purchaseId String?
+  reservedAt DateTime?
+  soldAt     DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([raffleId, number])
+  @@index([raffleId, status])
+  @@index([purchaseId])
+  @@index([buyerPhone])
+  @@index([buyerEmail])
+}
+
+// Uma compra (um PIX). status: "pending" | "paid" | "expired" | "failed" | "paid_conflict"
+model Purchase {
+  id          String    @id
+  raffleId    Int
+  raffle      Raffle    @relation(fields: [raffleId], references: [id], onDelete: Cascade)
+  numbers     Int[]
+  buyerName   String
+  buyerPhone  String
+  buyerEmail  String
+  amountCents Int
+  status      String    @default("pending")
+  mpOrderId   String?
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
+
+  @@index([mpOrderId])
+  @@index([raffleId])
+  @@index([buyerPhone])
+}
+
+model RaffleImage {
+  id        String   @id
+  raffleId  Int
+  raffle    Raffle   @relation(fields: [raffleId], references: [id], onDelete: Cascade)
+  mime      String
+  data      Bytes
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([raffleId])
+}
+
+// Configurações gerais do site (nome, WhatsApp, Instagram...)
+model Setting {
+  key   String @id
+  value String
 }

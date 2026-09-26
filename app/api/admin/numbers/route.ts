@@ -1,57 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { releaseExpiredReservations } from "@/lib/reservations";
+import { normalizePhone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  await releaseExpiredReservations();
-  const numbers = await prisma.raffleNumber.findMany({
-    orderBy: { id: "asc" },
-  });
-
-  const total = numbers.length;
-  const sold = numbers.filter((n) => n.status === "sold").length;
-  const reserved = numbers.filter((n) => n.status === "reserved").length;
-  const available = total - sold - reserved;
-
-  return NextResponse.json({
-    numbers,
-    summary: { total, sold, reserved, available },
-  });
-}
-
-// Edição manual: marcar como vendido (pagamento fora do sistema, ex. dinheiro)
-// ou liberar de volta pra disponível.
+// Edição manual de um número pelo painel.
+// PATCH { raffleId, number, action: "sell" | "release", buyerName?, buyerPhone? }
+// "sell" serve pra venda fora do site (dinheiro, PIX direto). "release" volta pra disponível.
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const { id, status, buyerName, buyerPhone } = body;
+  const raffleId = parseInt(String(body?.raffleId || ""), 10);
+  const number = parseInt(String(body?.number || ""), 10);
+  const action = body?.action;
 
-  if (!id || !["available", "sold", "reserved"].includes(status)) {
+  if (!raffleId || !number || !["sell", "release"].includes(action)) {
     return NextResponse.json({ error: "Dados inválidos." }, { status: 400 });
   }
 
-  const data: Record<string, unknown> = { status };
+  const where = { raffleId_number: { raffleId, number } };
+  const ticket = await prisma.ticket.findUnique({ where });
+  if (!ticket) return NextResponse.json({ error: "Número não encontrado." }, { status: 404 });
 
-  if (status === "sold") {
-    data.soldAt = new Date();
-    if (buyerName) data.buyerName = buyerName;
-    if (buyerPhone) data.buyerPhone = buyerPhone;
+  if (action === "sell") {
+    const buyerName = String(body?.buyerName || "").trim().slice(0, 120);
+    if (!buyerName) return NextResponse.json({ error: "Informe o nome do comprador." }, { status: 400 });
+    const updated = await prisma.ticket.update({
+      where,
+      data: {
+        status: "sold",
+        soldAt: new Date(),
+        buyerName,
+        buyerPhone: body?.buyerPhone ? normalizePhone(String(body.buyerPhone)) : null,
+        buyerEmail: body?.buyerEmail ? String(body.buyerEmail).trim().toLowerCase() : null,
+        reservedAt: null,
+      },
+    });
+    return NextResponse.json({ ok: true, number: updated.number });
   }
 
-  if (status === "available") {
-    data.buyerName = null;
-    data.buyerPhone = null;
-    data.buyerEmail = null;
-    data.paymentId = null;
-    data.reservedAt = null;
-    data.soldAt = null;
-  }
-
-  const updated = await prisma.raffleNumber.update({
-    where: { id: Number(id) },
-    data,
+  await prisma.ticket.update({
+    where,
+    data: {
+      status: "available",
+      buyerName: null,
+      buyerPhone: null,
+      buyerEmail: null,
+      purchaseId: null,
+      reservedAt: null,
+      soldAt: null,
+    },
   });
-
-  return NextResponse.json({ number: updated });
+  return NextResponse.json({ ok: true });
 }

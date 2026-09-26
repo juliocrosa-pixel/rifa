@@ -1,63 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMpOrder } from "@/lib/mercadopago";
+import { applyOrderToPurchase } from "@/lib/purchases";
 
-// O Mercado Pago chama essa rota quando o status de uma "order" muda (evento "order").
-// Docs: https://www.mercadopago.com.br/developers/en/docs/checkout-api-orders/notifications
+export const dynamic = "force-dynamic";
+
+// O Mercado Pago chama essa rota quando o status de uma order muda (evento "order").
+// Sempre consultamos a order direto na API em vez de confiar no corpo da notificação.
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const url = req.nextUrl;
 
-    const orderId = body?.data?.id || url.searchParams.get("data.id");
-    const type = body?.type || url.searchParams.get("type");
+    const orderId = body?.data?.id || url.searchParams.get("data.id") || url.searchParams.get("id");
+    const type = body?.type || url.searchParams.get("type") || url.searchParams.get("topic");
 
     if (!orderId || (type && type !== "order")) {
       return NextResponse.json({ received: true });
     }
 
-    // Consulta a order direto na API do Mercado Pago em vez de confiar cegamente
-    // no corpo da notificação, como a documentação recomenda.
     const order = await getMpOrder(String(orderId));
-    const status = order.status; // processed, canceled, expired, etc.
 
-    const numbers = await prisma.raffleNumber.findMany({
-      where: { paymentId: String(orderId) },
-    });
+    let purchaseId = order.external_reference || null;
+    if (!purchaseId || !(await prisma.purchase.findUnique({ where: { id: purchaseId } }))) {
+      const byOrder = await prisma.purchase.findFirst({ where: { mpOrderId: String(orderId) } });
+      purchaseId = byOrder?.id || null;
+    }
 
-    if (numbers.length === 0) {
-      if (status === "processed") {
-        // Pagamento aprovado de uma reserva que já tinha sido liberada (não deveria
-        // acontecer, pois o PIX vence junto com a reserva). Fica registrado nos logs
-        // da Vercel pra você conferir e devolver/atribuir manualmente.
-        console.error("ATENÇÃO: pagamento aprovado sem números reservados. Order:", orderId);
+    if (!purchaseId) {
+      if (order.status === "processed") {
+        console.error("ATENÇÃO: pagamento aprovado sem compra correspondente. Order:", orderId);
       }
       return NextResponse.json({ received: true });
     }
 
-    if (status === "processed") {
-      await prisma.raffleNumber.updateMany({
-        where: { paymentId: String(orderId) },
-        data: { status: "sold", soldAt: new Date() },
-      });
-    } else if (status === "canceled" || status === "expired") {
-      await prisma.raffleNumber.updateMany({
-        where: { paymentId: String(orderId), status: "reserved" },
-        data: {
-          status: "available",
-          buyerName: null,
-          buyerPhone: null,
-          buyerEmail: null,
-          paymentId: null,
-          reservedAt: null,
-        },
-      });
-    }
-
+    await applyOrderToPurchase(purchaseId, order);
     return NextResponse.json({ received: true });
   } catch (err) {
     console.error("Erro no webhook Mercado Pago:", err);
-    return NextResponse.json({ received: true });
+    // 500 faz o Mercado Pago tentar de novo mais tarde
+    return NextResponse.json({ error: "erro" }, { status: 500 });
   }
 }
 

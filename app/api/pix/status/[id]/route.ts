@@ -1,31 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { releaseExpiredReservations } from "@/lib/reservations";
+import { releaseExpiredReservations } from "@/lib/raffles";
+import { syncPurchaseWithMercadoPago } from "@/lib/purchases";
 
 export const dynamic = "force-dynamic";
 
+// A tela do PIX consulta aqui a cada poucos segundos.
+// Respostas: approved | pending | expired | unknown
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const paymentId = params.id;
-  await releaseExpiredReservations();
+  const purchase = await prisma.purchase.findUnique({ where: { id: params.id } });
+  if (!purchase) return NextResponse.json({ status: "unknown" });
 
-  const numbers = await prisma.raffleNumber.findMany({
-    where: { paymentId },
-  });
+  let status = purchase.status;
 
-  if (numbers.length === 0) {
-    return NextResponse.json({ status: "unknown" });
+  // Garantia extra: se o webhook ainda não chegou, pergunta direto pro Mercado Pago.
+  if (status === "pending") {
+    status = await syncPurchaseWithMercadoPago(purchase.id);
+  }
+  if (status === "pending") {
+    await releaseExpiredReservations(purchase.raffleId);
+    const fresh = await prisma.purchase.findUnique({ where: { id: purchase.id } });
+    status = fresh?.status || status;
   }
 
-  // O status "oficial" é mantido pelo webhook do Mercado Pago, que atualiza
-  // os números pra "sold" (aprovado) ou de volta pra "available" (recusado/expirado).
-  const anySold = numbers.some((n) => n.status === "sold");
-  const anyReserved = numbers.some((n) => n.status === "reserved");
-
-  if (anySold) {
-    return NextResponse.json({ status: "approved" });
+  if (status === "paid" || status === "paid_conflict") {
+    return NextResponse.json({ status: "approved", conflict: status === "paid_conflict" });
   }
-  if (anyReserved) {
-    return NextResponse.json({ status: "pending" });
-  }
+  if (status === "pending") return NextResponse.json({ status: "pending" });
   return NextResponse.json({ status: "expired" });
 }
