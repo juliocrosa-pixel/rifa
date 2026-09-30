@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_COOKIE_NAME, isValidSessionToken } from "./lib/auth";
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isAdminPage = pathname.startsWith("/admin") && pathname !== "/admin/login";
@@ -9,7 +9,7 @@ export function middleware(req: NextRequest) {
 
   if (isAdminPage || isAdminApi) {
     const token = req.cookies.get(ADMIN_COOKIE_NAME)?.value;
-    if (!isValidSessionToken(token)) {
+    if (!(await isValidSessionToken(token))) {
       if (isAdminApi) {
         return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
       }
