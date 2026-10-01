@@ -156,10 +156,7 @@ export default function RaffleClient({
 
             {/* Progresso */}
             <div>
-              <div className="mb-1.5 flex justify-between text-sm">
-                <span className="text-neutral-300">
-                  <b className="text-white">{soldCount}</b> de {total} vendidos
-                </span>
+              <div className="mb-1.5 flex justify-end text-sm">
                 <span className="font-semibold text-amber-300">{percent}%</span>
               </div>
               <div className="h-3 overflow-hidden rounded-full bg-neutral-800">
